@@ -60,7 +60,7 @@ namespace FileHeaderReader
         private byte[] _buffer1;
 
 
-        public List<FileResults> Scan(ICompress file, bool testcrc, bool deepScan)
+        public List<FileResults> Scan(ICompress file, bool testcrc, bool deepScan, int threaded = 2)
         {
             List<FileResults> lstFileResults = new List<FileResults>();
             int fileCount = file.LocalFilesCount();
@@ -83,7 +83,20 @@ namespace FileHeaderReader
                     fileResults.FileStatus = zr;
                 else
                 {
-                    int res = CheckSumRead(fStream, fileResults, file.UncompressedSize(i), testcrc, deepScan);
+                    int res;
+                    switch (threaded)
+                    {
+                        case 0:
+                            res = CheckSumReadSingle(fStream, fileResults, file.UncompressedSize(i), testcrc, deepScan);
+                            break;
+                        case 1:
+                            res = CheckSumReadMid(fStream, fileResults, file.UncompressedSize(i), testcrc);
+                            break;
+                        default:
+                            res = CheckSumRead(fStream, fileResults, file.UncompressedSize(i), testcrc, deepScan);
+                            break;
+                    }
+
                     if (res != 0)
                         fileResults.FileStatus = ZipReturn.ZipDecodeError;
                     else
@@ -354,6 +367,347 @@ namespace FileHeaderReader
             fileResults.AltMD5 = altMd5?.Hash;
 
             lbuffer.Dispose();
+            tcrc32?.Dispose();
+            tmd5?.Dispose();
+            tsha1?.Dispose();
+            altCrc32?.Dispose();
+            altMd5?.Dispose();
+            altSha1?.Dispose();
+
+            return 0;
+        }
+
+        private int CheckSumReadMid(Stream inStream, FileResults fileResults, ulong totalSize, bool testcrc)
+        {
+            if (_buffer0 == null)
+            {
+                _buffer0 = new byte[Buffersize];
+                _buffer1 = new byte[Buffersize];
+            }
+
+            fileResults.MD5 = null;
+            fileResults.SHA1 = null;
+            fileResults.CRC = null;
+
+            ThreadLoadBuffer lBuffer = null;
+            ThreadHash tHash = null;
+            ThreadHash altHash = null;
+
+            try
+            {
+                int maxHeaderSize = 128;
+                long sizetogo = (long)totalSize;
+                int sizenow = maxHeaderSize < sizetogo ? maxHeaderSize : (int)sizetogo;
+                inStream.Read(_buffer0, 0, sizenow);
+                fileResults.HeaderFileType = FileHeaderReader.GetType(_buffer0, sizenow, out int actualHeaderSize);
+
+
+                // if the file has no header then just use the main hash checkers.
+                if (fileResults.HeaderFileType == HeaderFileType.Nothing || actualHeaderSize == 0)
+                {
+                    // no header found & not reading hashes.
+                    if (!testcrc)
+                        return 0;
+
+                    // no header found so just push the initial buffer read into the hash checkers.
+                    // and then continue with the rest of the file.
+                    tHash = new ThreadHash();
+                    tHash.Trigger(_buffer0, sizenow);
+                    tHash.Wait();
+
+                    sizetogo -= sizenow;
+                }
+                else
+                {
+                    // header found
+                    fileResults.AltSize = (ulong)((long)totalSize - actualHeaderSize);
+                    //setup main hash checkers
+                    tHash = new ThreadHash();
+                    altHash = new ThreadHash();
+
+                    if (sizenow > actualHeaderSize)
+                    {
+                        // Already read more than the header, so we need to split what we read into the 2 hash checkers
+
+                        // first scan the header part from what we have already read.
+                        // scan what we read so far with just the main hashers
+                        tHash?.Trigger(_buffer0, actualHeaderSize);
+                        tHash?.Wait();
+
+                        // put the rest of what we read into the second buffer, and scan with all hashers
+                        int restSize = sizenow - actualHeaderSize;
+                        for (int i = 0; i < restSize; i++)
+                        {
+                            _buffer1[i] = _buffer0[actualHeaderSize + i];
+                        }
+                        tHash?.Trigger(_buffer1, restSize);
+                        altHash.Trigger(_buffer1, restSize);
+
+                        tHash?.Wait();
+                        altHash.Wait();
+
+                        sizetogo -= sizenow;
+                    }
+                    else
+                    {
+                        // Read less than the length of the header so read the rest of the header.
+                        // then continue to reader the full rest of the file.
+
+                        // scan what we read so far
+                        tHash?.Trigger(_buffer0, sizenow);
+                        tHash?.Wait();
+
+                        sizetogo -= sizenow;
+
+                        // now read the rest of the header.
+                        sizenow = actualHeaderSize - sizenow;
+                        inStream.Read(_buffer0, 0, sizenow);
+
+                        // scan the rest of the header
+                        tHash?.Trigger(_buffer0, sizenow);
+                        tHash?.Wait();
+
+                        sizetogo -= sizenow;
+                    }
+                }
+
+                lBuffer = new ThreadLoadBuffer(inStream);
+
+                // Pre load the first buffer0
+                int sizeNext = sizetogo > Buffersize ? Buffersize : (int)sizetogo;
+                inStream.Read(_buffer0, 0, sizeNext);
+                int sizebuffer = sizeNext;
+                sizetogo -= sizeNext;
+                bool whichBuffer = true;
+
+                while (sizebuffer > 0 && !lBuffer.errorState)
+                {
+                    sizeNext = sizetogo > Buffersize ? Buffersize : (int)sizetogo;
+
+                    if (sizeNext > 0)
+                    {
+                        lBuffer.Trigger(whichBuffer ? _buffer1 : _buffer0, sizeNext);
+                    }
+
+                    byte[] buffer = whichBuffer ? _buffer0 : _buffer1;
+                    tHash?.Trigger(buffer, sizebuffer);
+                    altHash?.Trigger(buffer, sizebuffer);
+
+
+                    if (sizeNext > 0)
+                    {
+                        lBuffer.Wait();
+                    }
+                    tHash?.Wait();
+                    altHash?.Wait();
+
+                    sizebuffer = sizeNext;
+                    sizetogo -= sizeNext;
+                    whichBuffer = !whichBuffer;
+                }
+
+                lBuffer.Finish();
+                tHash?.Finish();
+                altHash?.Finish();
+
+
+            }
+            catch
+            {
+                lBuffer?.Dispose();
+                tHash?.Dispose();
+                altHash?.Dispose();
+
+                return 0x17; // need to remember what this number is for
+            }
+
+            if (lBuffer.errorState)
+            {
+                lBuffer.Dispose();
+                tHash?.Dispose();
+                altHash?.Dispose();
+
+                return 0x17; // need to remember what this number is for
+            }
+
+            fileResults.CRC = tHash?.HashCRC;
+            fileResults.SHA1 = tHash?.HashSHA1;
+            fileResults.MD5 = tHash?.HashMD5;
+            fileResults.AltCRC = altHash?.HashCRC;
+            fileResults.AltSHA1 = altHash?.HashSHA1;
+            fileResults.AltMD5 = altHash?.HashMD5;
+
+            lBuffer.Dispose();
+            tHash?.Dispose();
+            altHash?.Dispose();
+
+            return 0;
+        }
+
+
+
+
+        private int CheckSumReadSingle(Stream inStream, FileResults fileResults, ulong totalSize, bool testcrc, bool testDeep)
+        {
+            if (_buffer0 == null)
+            {
+                _buffer0 = new byte[Buffersize];
+            }
+
+            fileResults.MD5 = null;
+            fileResults.SHA1 = null;
+            fileResults.CRC = null;
+
+            ThreadCRC tcrc32 = null;
+            ThreadMD5 tmd5 = null;
+            ThreadSHA1 tsha1 = null;
+
+            ThreadCRC altCrc32 = null;
+            ThreadMD5 altMd5 = null;
+            ThreadSHA1 altSha1 = null;
+
+            try
+            {
+                int maxHeaderSize = 128;
+                long sizetogo = (long)totalSize;
+                int sizenow = maxHeaderSize < sizetogo ? maxHeaderSize : (int)sizetogo;
+                inStream.Read(_buffer0, 0, sizenow);
+                fileResults.HeaderFileType = FileHeaderReader.GetType(_buffer0, sizenow, out int actualHeaderSize);
+
+
+                // if the file has no header then just use the main hash checkers.
+                if (fileResults.HeaderFileType == HeaderFileType.Nothing || actualHeaderSize == 0)
+                {
+                    // no header found & not reading hashes.
+                    if (!(testcrc || testDeep))
+                        return 0;
+
+                    // no header found so just push the initial buffer read into the hash checkers.
+                    // and then continue with the rest of the file.
+                    tcrc32 = new ThreadCRC(false);
+                    if (testDeep)
+                    {
+                        tmd5 = new ThreadMD5(false);
+                        tsha1 = new ThreadSHA1(false);
+                    }
+                    tcrc32.Trigger(_buffer0, sizenow);
+                    tmd5?.Trigger(_buffer0, sizenow);
+                    tsha1?.Trigger(_buffer0, sizenow);
+
+                    sizetogo -= sizenow;
+                }
+                else
+                {
+                    // header found
+                    fileResults.AltSize = (ulong)((long)totalSize - actualHeaderSize);
+                    //setup main hash checkers
+                    if (testcrc || testDeep)
+                        tcrc32 = new ThreadCRC(false);
+
+                    altCrc32 = new ThreadCRC(false);
+                    if (testDeep)
+                    {
+                        tmd5 = new ThreadMD5(false);
+                        tsha1 = new ThreadSHA1(false);
+                        altMd5 = new ThreadMD5(false);
+                        altSha1 = new ThreadSHA1(false);
+                    }
+
+                    if (sizenow > actualHeaderSize)
+                    {
+                        // Already read more than the header, so we need to split what we read into the 2 hash checkers
+
+                        // first scan the header part from what we have already read.
+                        // scan what we read so far with just the main hashers
+                        tcrc32?.Trigger(_buffer0, actualHeaderSize);
+                        tmd5?.Trigger(_buffer0, actualHeaderSize);
+                        tsha1?.Trigger(_buffer0, actualHeaderSize);
+
+                        // put the rest of what we read into the second buffer, and scan with all hashers
+                        int restSize = sizenow - actualHeaderSize;
+                        for (int i = 0; i < restSize; i++)
+                        {
+                            _buffer0[i] = _buffer0[actualHeaderSize + i];
+                        }
+                        tcrc32?.Trigger(_buffer0, restSize);
+                        tmd5?.Trigger(_buffer0, restSize);
+                        tsha1?.Trigger(_buffer0, restSize);
+                        altCrc32.Trigger(_buffer0, restSize);
+                        altMd5?.Trigger(_buffer0, restSize);
+                        altSha1?.Trigger(_buffer0, restSize);
+
+                        sizetogo -= sizenow;
+                    }
+                    else
+                    {
+                        // Read less than the length of the header so read the rest of the header.
+                        // then continue to reader the full rest of the file.
+
+                        // scan what we read so far
+                        tcrc32?.Trigger(_buffer0, sizenow);
+                        tmd5?.Trigger(_buffer0, sizenow);
+                        tsha1?.Trigger(_buffer0, sizenow);
+
+                        sizetogo -= sizenow;
+
+                        // now read the rest of the header.
+                        sizenow = actualHeaderSize - sizenow;
+                        inStream.Read(_buffer0, 0, sizenow);
+
+                        // scan the rest of the header
+                        tcrc32?.Trigger(_buffer0, sizenow);
+                        tmd5?.Trigger(_buffer0, sizenow);
+                        tsha1?.Trigger(_buffer0, sizenow);
+
+                        sizetogo -= sizenow;
+                    }
+                }
+
+                while (sizetogo > 0)
+                {
+                    int sizeNext = sizetogo > Buffersize ? Buffersize : (int)sizetogo;
+
+                    inStream.Read(_buffer0, 0, sizeNext);
+
+                    tcrc32?.Trigger(_buffer0, sizeNext);
+                    tmd5?.Trigger(_buffer0, sizeNext);
+                    tsha1?.Trigger(_buffer0, sizeNext);
+
+                    altCrc32?.Trigger(_buffer0, sizeNext);
+                    altMd5?.Trigger(_buffer0, sizeNext);
+                    altSha1?.Trigger(_buffer0, sizeNext);
+
+                    sizetogo -= sizeNext;
+                }
+                tcrc32?.Finish();
+                tmd5?.Finish();
+                tsha1?.Finish();
+                altCrc32?.Finish();
+                altMd5?.Finish();
+                altSha1?.Finish();
+
+
+            }
+            catch
+            {
+                tcrc32?.Dispose();
+                tmd5?.Dispose();
+                tsha1?.Dispose();
+                altCrc32?.Dispose();
+                altMd5?.Dispose();
+                altSha1?.Dispose();
+
+                return 0x17; // need to remember what this number is for
+            }
+
+
+            fileResults.CRC = tcrc32?.Hash;
+            fileResults.SHA1 = tsha1?.Hash;
+            fileResults.MD5 = tmd5?.Hash;
+            fileResults.AltCRC = altCrc32?.Hash;
+            fileResults.AltSHA1 = altSha1?.Hash;
+            fileResults.AltMD5 = altMd5?.Hash;
+
             tcrc32?.Dispose();
             tmd5?.Dispose();
             tsha1?.Dispose();

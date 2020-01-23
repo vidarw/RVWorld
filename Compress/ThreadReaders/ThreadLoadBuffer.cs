@@ -18,12 +18,15 @@ namespace Compress.ThreadReaders
 
         public int SizeRead;
 
-        public ThreadLoadBuffer(Stream ds)
+        public ThreadLoadBuffer(Stream ds, bool threaded = true)
         {
+            _ds = ds;
+            if (!threaded)
+                return;
+
             _waitEvent = new AutoResetEvent(false);
             _outEvent = new AutoResetEvent(false);
             _finished = false;
-            _ds = ds;
             errorState = false;
 
             _tWorker = new Thread(MainLoop);
@@ -32,8 +35,8 @@ namespace Compress.ThreadReaders
 
         public void Dispose()
         {
-            _waitEvent.Close();
-            _outEvent.Close();
+            _waitEvent?.Close();
+            _outEvent?.Close();
         }
 
         private void MainLoop()
@@ -59,21 +62,28 @@ namespace Compress.ThreadReaders
 
         public void Trigger(byte[] buffer, int size)
         {
-            _buffer = buffer;
-            _size = size;
-            _waitEvent.Set();
+            if (_waitEvent != null)
+            {
+                _buffer = buffer;
+                _size = size;
+                _waitEvent.Set();
+            }
+            else
+            {
+                SizeRead = _ds.Read(_buffer, 0, _size);
+            }
         }
 
         public void Wait()
         {
-            _outEvent.WaitOne();
+            _outEvent?.WaitOne();
         }
 
         public void Finish()
         {
             _finished = true;
-            _waitEvent.Set();
-            _tWorker.Join();
+            _waitEvent?.Set();
+            _tWorker?.Join();
         }
     }
 }

@@ -16,12 +16,15 @@ namespace Compress.ThreadReaders
         private int _size;
         private bool _finished;
 
-        public ThreadSHA1()
+        public ThreadSHA1(bool threaded = true)
         {
+            _sha1 = SHA1.Create();
+            if (!threaded)
+                return;
+
             _waitEvent = new AutoResetEvent(false);
             _outEvent = new AutoResetEvent(false);
             _finished = false;
-            _sha1 = SHA1.Create();
 
             _tWorker = new Thread(MainLoop);
             _tWorker.Start();
@@ -31,9 +34,9 @@ namespace Compress.ThreadReaders
 
         public void Dispose()
         {
-            _waitEvent.Close();
-            _outEvent.Close();
-            //    _sha1.Dispose();
+            _waitEvent?.Close();
+            _outEvent?.Close();
+            // _sha1.Dispose();
         }
 
         private void MainLoop()
@@ -55,22 +58,36 @@ namespace Compress.ThreadReaders
 
         public void Trigger(byte[] buffer, int size)
         {
-            _buffer = buffer;
-            _size = size;
-            _waitEvent.Set();
+            if (_waitEvent != null)
+            {
+                _buffer = buffer;
+                _size = size;
+                _waitEvent.Set();
+            }
+            else
+            {
+                _sha1.TransformBlock(buffer, 0, size, null, 0);
+            }
         }
 
         public void Wait()
         {
-            _outEvent.WaitOne();
+            _outEvent?.WaitOne();
         }
-
 
         public void Finish()
         {
-            _finished = true;
-            _waitEvent.Set();
-            _tWorker.Join();
+            if (_waitEvent != null)
+            {
+                _finished = true;
+                _waitEvent.Set();
+                _tWorker.Join();
+            }
+            else
+            {
+                byte[] tmp = new byte[0];
+                _sha1.TransformFinalBlock(tmp, 0, 0);
+            }
         }
     }
 }

@@ -14,10 +14,12 @@ namespace Compress.ThreadReaders
         private int _size;
         private bool _finished;
 
-
-        public ThreadCRC()
+        public ThreadCRC(bool threaded = true)
         {
-            crc=new Utils.CRC();
+            crc = new Utils.CRC();
+            if (!threaded)
+                return;
+
             _waitEvent = new AutoResetEvent(false);
             _outEvent = new AutoResetEvent(false);
             _finished = false;
@@ -30,8 +32,8 @@ namespace Compress.ThreadReaders
 
         public void Dispose()
         {
-            _waitEvent.Dispose();
-            _outEvent.Dispose();
+            _waitEvent?.Dispose();
+            _outEvent?.Dispose();
         }
 
         private void MainLoop()
@@ -43,30 +45,35 @@ namespace Compress.ThreadReaders
                 {
                     break;
                 }
-
                 crc.SlurpBlock(_buffer,0,_size);
-
                 _outEvent.Set();
             }
         }
 
         public void Trigger(byte[] buffer, int size)
         {
-            _buffer = buffer;
-            _size = size;
-            _waitEvent.Set();
+            if (_waitEvent != null)
+            {
+                _buffer = buffer;
+                _size = size;
+                _waitEvent.Set();
+            }
+            else
+            {
+                crc.SlurpBlock(buffer, 0, size);
+            }
         }
 
         public void Wait()
         {
-            _outEvent.WaitOne();
+            _outEvent?.WaitOne();
         }
 
         public void Finish()
         {
             _finished = true;
-            _waitEvent.Set();
-            _tWorker.Join();
+            _waitEvent?.Set();
+            _tWorker?.Join();
         }
     }
 }
