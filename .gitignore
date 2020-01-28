@@ -29,6 +29,8 @@
 /TrrntZipCMD/obj
 /TrrntZipUI/bin
 /TrrntZipUI/obj
+/ZLib/bin
+/ZLib/obj
 /.vs/RVWorld/v16/Server/sqlite3
 /.vs/RVWorld/v16/.suo
 /.vs
