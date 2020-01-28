@@ -1,7 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.Text;
-using Compress.ZipFile.ZLib;
+using ZLib;
 using Directory = RVIO.Directory;
 using FileInfo = RVIO.FileInfo;
 using FileStream = RVIO.FileStream;

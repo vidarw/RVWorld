@@ -12,7 +12,7 @@ using Compress.SevenZip;
 using Compress.SevenZip.Common;
 using Compress.ThreadReaders;
 using Compress.ZipFile;
-using Compress.ZipFile.ZLib;
+using ZLib;
 using RVCore.RvDB;
 using RVCore.Utils;
 using File = RVIO.File;

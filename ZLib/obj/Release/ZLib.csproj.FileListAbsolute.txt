@@ -1,0 +1,5 @@
+E:\Personal\RVWorldGitHub\ZLib\bin\Release\ZLib.dll
+E:\Personal\RVWorldGitHub\ZLib\bin\Release\ZLib.pdb
+E:\Personal\RVWorldGitHub\ZLib\obj\Release\ZLib.dll
+E:\Personal\RVWorldGitHub\ZLib\obj\Release\ZLib.pdb
+E:\Personal\RVWorldGitHub\ZLib\obj\Release\ZLib.csprojAssemblyReference.cache

@@ -244,6 +244,10 @@
       <Project>{ff8a7a0a-6319-49e0-a6e6-df3754bffdd1}</Project>
       <Name>RVIO</Name>
     </ProjectReference>
+    <ProjectReference Include="..\ZLib\ZLib.csproj">
+      <Project>{c5a77fb6-67d5-4a45-97e4-327f0a20332c}</Project>
+      <Name>ZLib</Name>
+    </ProjectReference>
   </ItemGroup>
   <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

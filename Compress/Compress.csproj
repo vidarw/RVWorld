@@ -121,19 +121,15 @@
     <Compile Include="Utils\Reporter.cs" />
     <Compile Include="ZipEnums.cs" />
     <Compile Include="ZipFile\zipFile.cs" />
-    <Compile Include="ZipFile\ZLib\Deflate.cs" />
-    <Compile Include="ZipFile\ZLib\Inflate.cs" />
-    <Compile Include="ZipFile\ZLib\InfTree.cs" />
-    <Compile Include="ZipFile\ZLib\Tree.cs" />
-    <Compile Include="ZipFile\ZLib\Zlib.cs" />
-    <Compile Include="ZipFile\ZLib\ZlibBaseStream.cs" />
-    <Compile Include="ZipFile\ZLib\ZlibCodec.cs" />
-    <Compile Include="ZipFile\ZLib\ZlibConstants.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\RVIO\RVIO.csproj">
       <Project>{ff8a7a0a-6319-49e0-a6e6-df3754bffdd1}</Project>
       <Name>RVIO</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\ZLib\ZLib.csproj">
+      <Project>{c5a77fb6-67d5-4a45-97e4-327f0a20332c}</Project>
+      <Name>ZLib</Name>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

@@ -3,7 +3,7 @@ using System.IO;
 using System.Text;
 using Compress;
 using Compress.ThreadReaders;
-using Compress.ZipFile.ZLib;
+using ZLib;
 using FileHeaderReader;
 using RomVaultX.DB;
 using Directory = RVIO.Directory;
