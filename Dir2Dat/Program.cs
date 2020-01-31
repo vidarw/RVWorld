@@ -231,8 +231,8 @@ namespace Dir2Dat
                             Add7Zip(f, thisDir);
                             break;
                         default:
-                            if (newStyle)
-                                AddFile(f, thisDir);
+                            //if (newStyle)
+                                AddFileAsZip(f, thisDir);
                             break;
                     }
                 }
@@ -406,5 +406,38 @@ namespace Dir2Dat
 
             zf1.ZipFileClose();
         }
+
+        private static void AddFileAsZip(FileInfo f, DatDir thisDir)
+        {
+            Compress.File.File zf1 = new Compress.File.File();
+            zf1.ZipFileOpen(f.FullName, -1, true);
+            FileScan fs = new FileScan();
+            List<FileScan.FileResults> fr = fs.Scan(zf1, true, true, threadedScan);
+
+
+            DatDir dz = new DatDir(DatFileType.DirTorrentZip)
+            {
+                Name =Path.GetFileNameWithoutExtension(f.Name),
+                DGame = new DatGame()
+            };
+
+            DatFile df = new DatFile(DatFileType.FileTorrentZip)
+            {
+                Name = f.Name,
+                Size = fr[0].Size,
+                CRC = fr[0].CRC,
+                SHA1 = fr[0].SHA1
+            };
+
+            dz.ChildAdd(df);
+
+            lock (thisDir)
+            {
+                thisDir.ChildAdd(dz);
+            }
+
+            zf1.ZipFileClose();
+        }
+
     }
 }

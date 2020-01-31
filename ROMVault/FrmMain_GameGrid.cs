@@ -620,7 +620,7 @@ namespace ROMVault
                             bDes = bRvDir.Game.GetData(RvGame.GameData.Description);
                         }
 
-                        result = string.CompareOrdinal(aDes, bDes);
+                        result = string.CompareOrdinal(aDes ?? "", bDes ?? "");
 
                         // if desciptions match, fall through to sorting by name
                         if (result == 0)
